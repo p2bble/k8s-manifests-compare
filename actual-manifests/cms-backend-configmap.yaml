@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cms-db-config
+  namespace: croms
+data:
+  DB1_HOST: "10.40.16.22"
+  DB1_PORT: "3306"
+  DB1_NAME: "incheondb"
+  DB1_USER: "incheon"
+  DB2_HOST: "10.40.16.22"
+  DB2_PORT: "3306"
+  DB2_NAME: "croms"
+  DB2_USER: "cromsDb@mbex"
+  CROMSHOSTURL: "http://10.40.16.21:30080"

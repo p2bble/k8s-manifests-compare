@@ -1,0 +1,68 @@
+{{- if .Values.kibana.enabled }}
+
+# =================================================================
+# Kibana Deployment
+# Elasticsearch 데이터 시각화 도구인 Kibana를 배포하고 관리합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  labels:
+    app: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - name: kibana-container
+        image: docker.elastic.co/kibana/kibana:7.9.1
+        ports:
+        - containerPort: 5601 # Kibana 웹 인터페이스 포트
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        # 연결할 Elasticsearch 서비스의 주소를 지정합니다.
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch-service:9200"
+        # Elasticsearch 인증 정보를 Secret에서 가져와 설정합니다.
+        - name: ELASTICSEARCH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: USERNAME
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: PASSWORD
+
+---
+
+# =================================================================
+# Kibana Service
+# Kibana Pod에 대한 네트워크 연결을 설정합니다. (NodePort 타입)
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-service
+spec:
+  type: NodePort                 # 클러스터 외부에서 노드의 IP와 특정 포트로 접근할 수 있도록 합니다.
+  selector:
+    app: kibana                   # 'app: kibana' 라벨을 가진 Pod를 대상으로 트래픽을 전달합니다.
+  ports:
+  - port: 5601                    # 서비스가 클러스터 내부에서 노출할 포트
+    targetPort: 5601              # 트래픽을 전달할 대상 Pod의 컨테이너 포트
+    
+{{- end }}

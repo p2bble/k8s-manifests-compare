@@ -1,0 +1,94 @@
+# =================================================================
+# RabbitMQ Service
+# RabbitMQ Pod에 대한 네트워크 연결을 설정합니다. (NodePort 타입)
+# =================================================================
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # The required headless service for StatefulSets
+  name: rabbitmq-headless
+  namespace: croms
+  labels:
+    app: rabbitmq
+spec:
+  type: NodePort
+  ports:
+  - port: 5672
+    name: amqp
+    targetPort: 5672
+  - port: 15672
+    name: http
+    targetPort: 15672 # dashboard
+    nodePort: 30195
+  - port: 4369
+    name: epmd
+  - port: 25672
+    name: rabbitmq-dist
+  selector:
+    app: rabbitmq
+
+---
+
+# =================================================================
+# RabbitMQ StatefulSet
+# 상태 유지가 중요한 RabbitMQ 메시지 브로커를 배포합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: croms
+spec:
+  serviceName: rabbitmq-headless # 위에서 정의한 Service와 연결합니다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+      - name: rabbitmq-container
+        image: rabbitmq:3.11.11-management # 관리 플러그인이 포함된 RabbitMQ 이미지
+        ports:
+        - name: amqp
+          containerPort: 5672
+        - name: management
+          containerPort: 15672
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: RABBITMQ_DEFAULT_VHOST # 기본 가상 호스트(vhost) 이름
+          value: "croms-device"
+        - name: RABBITMQ_DEFAULT_USER  # 기본 사용자 이름 (Secret에서 가져옴)
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: USERNAME
+        - name: RABBITMQ_DEFAULT_PASS  # 기본 사용자 비밀번호 (Secret에서 가져옴)
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: PASSWORD
+        - name: RABBITMQ_ERLANG_COOKIE # 클러스터 구성 시 노드 간 인증을 위한 공유 비밀 값
+          value: "RabbitMQ-My-Cookies"
+        # ----------------- 볼륨 마운트 설정 -----------------
+        volumeMounts:
+        - name: rabbitmq-data        # 아래 volumeClaimTemplates에서 생성될 PVC의 이름
+          mountPath: /var/lib/rabbitmq # RabbitMQ 데이터가 저장될 컨테이너 내부 경로
+  # =================================================================
+  # PersistentVolumeClaim 템플릿
+  # StatefulSet의 각 Pod에 대해 고유한 영구 볼륨을 동적으로 생성합니다.
+  # =================================================================
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-data           # PVC의 이름 (예: rabbitmq-data-rabbitmq-0)
+    spec:
+      accessModes: [ "ReadWriteOnce" ]    # ⬅️ RWO에서 RWX로 변경
+      storageClassName: "ceph-filesystem"      # ⬅️ local-path에서 nfs-client로 변경
+      resources:
+        requests:
+          storage: 10Gi              # 8GB의 저장 공간 요청

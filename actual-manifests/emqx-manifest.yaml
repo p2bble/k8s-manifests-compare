@@ -1,0 +1,195 @@
+# =================================================================
+# EMQX PersistentVolumeClaim (PVC)
+# EMQX 데이터를 영구적으로 저장하기 위한 스토리지 공간을 요청합니다.
+# =================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emqx-data-pvc             # PVC의 고유한 이름. StatefulSet에서 이 이름을 참조합니다.
+  namespace: croms
+spec:
+  accessModes:
+    - ReadWriteMany                 #   RWO에서 RWX로 변경
+  storageClassName: "ceph-filesystem"    #   local-path에서 nfs-client로 변경
+  resources:
+    requests:
+      storage: 5Gi                  # 5GB의 저장 공간 요청
+
+---
+# =================================================================
+# EMQX Headless Service
+# StatefulSet의 각 Pod에 고유하고 안정적인 DNS 이름을 제공하기 위해 사용됩니다.
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-service
+  namespace: croms
+  labels:
+    app: emqx
+spec:
+  type: NodePort
+  selector:
+    app: emqx                     # 'app: emqx' 라벨을 가진 Pod를 대상으로 합니다.
+  ports:
+  - name: mqtt
+    port: 1883                    # MQTT 기본 포트
+    targetPort: 1883
+    nodePort: 30954
+  - name: dashboard
+    port: 18083                   # EMQX 대시보드 포트
+    targetPort: 18083
+    nodePort: 30598
+  - name: ws
+    port: 8083                    # WebSocket 포트
+    targetPort: 8083
+  - name: wss
+    port: 8084                    # Secure WebSocket 포트
+    targetPort: 8084
+  - name: api
+    port: 8081                    # HTTP API 포트
+    targetPort: 8081
+  - name: clustering
+    port: 4370                    # 클러스터링 통신 포트
+    targetPort: 4370
+  - name: rpc
+    port: 5370                    # 내부 RPC 통신 포트
+    targetPort: 5370
+
+---
+
+# =================================================================
+# EMQX StatefulSet
+# 상태 유지가 중요한 EMQX MQTT 브로커를 배포합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: croms
+  labels:
+    app: emqx
+spec:
+  serviceName: emqx-service      # 위에서 정의한 Headless Service와 연결합니다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: emqx
+  template:
+    metadata:
+      labels:
+        app: emqx
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: emqx
+        image: docker.io/emqx/emqx:4.3.22
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 1883
+          name: mqtt
+        - containerPort: 8083
+          name: ws
+        - containerPort: 8084
+          name: wss
+        - containerPort: 18083
+          name: dashboard
+        - containerPort: 8081
+          name: api
+        - containerPort: 11883
+          name: internal
+        - containerPort: 4370
+          name: clustering
+        - containerPort: 5370
+          name: rpc
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: EMQX_NAME
+          value: "emqx"
+        - name: EMQX_HOST              # Pod의 고유한 이름을 호스트 이름으로 사용
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: EMQX_CLUSTER__DISCOVERY_STRATEGY # 단일 노드 모드로 실행
+          value: "singleton"
+        - name: EMQX_MQTT__MAX_PACKET_SIZE # 최대 MQTT 패킷 크기
+          value: "100MB"
+        - name: EMQX_ALLOW_ANONYMOUS   # 익명 접속 비활성화
+          value: "false"
+        # ====== 커넥션/세션 확장 ======
+        - name: EMQX_NODE__PROCESS_LIMIT
+          value: "2097152"
+        - name: EMQX_NODE__MAX_PORTS
+          value: "1048576"
+        - name: EMQX_MQTT__MAX_SUBSCRIPTIONS
+          value: "500000"
+        - name: EMQX_MQTT__MAX_CONNECTIONS
+          value: "500000"      # 서버 스펙에 맞춰 적정 수치 (예: 50만)
+        - name: EMQX_MQTT__MAX_SESSIONS
+          value: "500000"      # 세션 수도 동일하게 제한
+        - name: EMQX_SESSION__MAX_SUBSCRIPTIONS
+          value: "10000"       # 클라이언트별 구독 수 제한 (안정성 확보)
+        # ==========================
+        # ====== 세션 무한대 유지 ======
+        - name: EMQX_SESSION__EXPIRY_INTERVAL
+          value: "30d"
+        # ==========================
+        - name: EMQX_LOADED_PLUGINS    # 로드할 플러그인 목록
+          value: "emqx_management,emqx_auth_mnesia,emqx_dashboard"
+        - name: EMQX_AUTH__MNESIA__PASSWORD_HASH
+          value: "plain"
+        - name: EMQX_AUTH__CLIENT__1__CLIENTID
+          value: "clobot"
+        - name: EMQX_AUTH__CLIENT__1__PASSWORD
+          value: "ansdufdj1*"
+        # 사용자 및 대시보드 인증 정보는 Secret에서 안전하게 가져옴
+        - name: EMQX_AUTH__USER__1__USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: USERNAME
+        - name: EMQX_AUTH__USER__1__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: PASSWORD
+        - name: EMQX_DASHBOARD__DEFAULT_USER__LOGIN
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_USERNAME
+        - name: EMQX_DASHBOARD__DEFAULT_USER__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_PASSWORD
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        # ----------------- 리소스 요청 및 제한 설정 -----------------
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        # ----------------- 헬스 체크 설정 -----------------
+        livenessProbe:                # 컨테이너가 살아있는지 검사
+          httpGet:
+            path: /status
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:               # 컨테이너가 트래픽을 받을 준비가 되었는지 검사
+          httpGet:
+            path: /status
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10

@@ -1,0 +1,123 @@
+# =================================================================
+# Global & Environment Specific Configuration
+# =================================================================
+global:
+  deployConfigs: true
+  registry: "registry.clobot.co.kr/croms/edge/croms-incheon-airport-k8s"
+  pullPolicy: IfNotPresent
+  imageTag: "latest"
+
+ingress:
+  enabled: true
+  host: k8s-incheon-airport.croms.co.kr
+  externalIP: "192.168.100.202"
+  tlsSecretName: croms-tls-secret
+
+externalMariaDB:
+  enabled: true
+  ipList:
+    - "192.168.100.204"
+
+nfsProvisioner:
+  enabled: true
+  nfsServerIP: "192.168.100.30"
+  nfsPath: "/volume1/storage/vmdata/volumes/k8s-incheon-airport"
+  # 💡 추가된 부분: StorageClass 생성 여부를 제어합니다.
+  # 클러스터에 이미 'nfs-client' StorageClass가 있는 경우 false로 설정하여 충돌을 방지합니다.
+  storageClass:
+    create: true
+
+# =================================================================
+# Application Services
+# =================================================================
+auth:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: croms-auth-server
+    tag: ""
+  port: 9194
+  resources:
+    requests: { cpu: "500m", memory: "2Gi" }
+    limits: { cpu: "1", memory: "4Gi" }
+
+core:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: croms-core-server
+    tag: ""
+  port: 9195
+  resources:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits: { cpu: "2", memory: "6Gi" }
+
+front:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: croms-front-end
+    tag: ""
+  port: 80
+  httpsPort: 443
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+
+# =================================================================
+# Infrastructure Services
+# =================================================================
+elasticsearch:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: "docker.elastic.co/elasticsearch/elasticsearch"
+    tag: "7.9.1"
+  storageSize: 20Gi
+  javaOpts: "-Xms2g -Xmx2g"
+  resources:
+    requests: { cpu: "1", memory: "2Gi" }
+    limits: { cpu: "2", memory: "4Gi" }
+
+kibana:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: "docker.elastic.co/kibana/kibana"
+    tag: "7.9.1"
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "1", memory: "2Gi" }
+
+rabbitmq:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: "rabbitmq"
+    tag: "3.11.11-management"
+  storageSize: 8Gi
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "1", memory: "2Gi" }
+
+emqx:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: "emqx/emqx"
+    tag: "4.3.22"
+  storageSize: 5Gi
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits: { cpu: "1", memory: "2Gi" }
+
+redis:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: "redis/redis-stack"
+    tag: "7.2.0-v10"
+  storageSize: 5Gi
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "1", memory: "2Gi" }

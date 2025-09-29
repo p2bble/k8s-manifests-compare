@@ -1,0 +1,103 @@
+{{- if .Values.nfsProvisioner.enabled }}
+
+# =================================================================
+# RBAC (Role-Based Access Control) 설정
+# =================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  # 릴리즈(배포)별로 고유한 ServiceAccount 이름을 생성하여 충돌을 방지합니다.
+  name: nfs-client-provisioner-{{ .Release.Name }}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  # ClusterRole은 클러스터 공용 리소스이므로 이름은 고유하게 유지합니다.
+  name: nfs-client-provisioner-runner-{{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  # 릴리즈(배포)별로 고유한 ClusterRoleBinding 이름을 생성하여 충돌을 방지합니다.
+  name: run-nfs-client-provisioner-{{ .Release.Name }}
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner-{{ .Release.Name }} # 위에서 생성한 고유 ServiceAccount와 연결
+    namespace: {{ .Release.Namespace }} # 이 차트가 배포되는 네임스페이스
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner-{{ .Release.Name }}
+  apiGroup: rbac.authorization.k8s.io
+---
+# =================================================================
+# NFS Provisioner 배포 (Deployment)
+# =================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-client-provisioner
+  labels:
+    app: nfs-client-provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-client-provisioner
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+      serviceAccountName: nfs-client-provisioner-{{ .Release.Name }} # 위에서 생성한 고유 ServiceAccount와 연결
+      containers:
+        - name: nfs-client-provisioner
+          image: k8s.gcr.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: k8s-sigs.io/nfs-subdir-external-provisioner
+            - name: NFS_SERVER
+              value: "{{ .Values.nfsProvisioner.nfsServerIP }}"
+            - name: NFS_PATH
+              value: "{{ .Values.nfsProvisioner.nfsPath }}"
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: "{{ .Values.nfsProvisioner.nfsServerIP }}"
+            path: "{{ .Values.nfsProvisioner.nfsPath }}"
+
+---
+# =================================================================
+# NFS StorageClass 생성
+# =================================================================
+{{- if .Values.nfsProvisioner.storageClass.create }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-client
+provisioner: k8s-sigs.io/nfs-subdir-external-provisioner
+parameters:
+  archiveOnDelete: "true"
+{{- end }}
+
+{{- end }}

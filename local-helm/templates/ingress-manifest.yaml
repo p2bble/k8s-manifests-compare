@@ -1,0 +1,65 @@
+{{- if .Values.ingress.enabled }}
+
+# =================================================================
+# Ingress Rules for CROMS Application
+# Ingress Controller에 도메인 및 경로 기반의 라우팅 규칙을 정의합니다.
+# =================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: croms-ingress
+  annotations:                      # Ingress Controller의 동작을 상세하게 제어하기 위한 설정
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"     # HTTP 접속을 HTTPS로 강제 리다이렉트하지 않음
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"      # 백엔드 서비스 응답 대기 시간 (초)
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"      # 백엔드 서비스로 요청 전송 대기 시간 (초)
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"            # 클라이언트 요청 본문 크기 제한 없음 (파일 업로드 등)
+    nginx.ingress.kubernetes.io/proxy-upgrade: "websocket"      # WebSocket 프로토콜 지원 활성화
+    nginx.ingress.kubernetes.io/proxy-connection: "Upgrade"
+spec:
+  ingressClassName: nginx           # 'nginx' Ingress Class를 사용하는 Ingress Controller가 이 규칙을 처리하도록 지정
+  tls:                              # HTTPS 통신을 위한 TLS(SSL) 인증서 설정
+  - hosts:
+    - {{ .Values.ingress.host }}    # values.yaml에서 호스트 이름을 가져옵니다.
+    secretName: {{ .Values.ingress.tlsSecretName }} # values.yaml에서 Secret 이름을 가져옵니다.
+  rules:
+  - host: {{ .Values.ingress.host }} # values.yaml에서 호스트 이름을 가져옵니다.
+    http:
+      paths:                        # 경로 기반 라우팅 규칙 목록
+      - path: /websocket            # '/websocket' 경로로 들어오는 요청
+        pathType: Prefix
+        backend:
+          service:
+            name: croms-core-service # 'croms-core-service'로 전달
+            port:
+              number: 9195
+      - path: /oauth2               # '/oauth2' 경로로 들어오는 요청
+        pathType: Prefix
+        backend:
+          service:
+            name: croms-auth-service # 'croms-auth-service'로 전달
+            port:
+              number: 9194
+      - path: /api                  # '/api' 경로로 들어오는 요청
+        pathType: Prefix
+        backend:
+          service:
+            name: croms-core-service # 'croms-core-service'로 전달
+            port:
+              number: 9195
+      - path: /                     # 위 경로들에 해당하지 않는 모든 요청
+        pathType: Prefix
+        backend:
+          service:
+            name: croms-front-service # 'croms-front-service'로 전달
+            port:
+              number: 80
+      - path: /proxyapi                  # '/proxyapi' 경로로 들어오는 요청
+        pathType: Prefix
+        backend:
+          service:
+            name: croms-core-service # 'croms-core-service'로 전달
+            port:
+              number: 9195
+
+{{- end }}

@@ -1,0 +1,143 @@
+{{- if .Values.elasticsearch.enabled }}
+
+# =================================================================
+# Elasticsearch Headless Service
+# StatefulSet의 각 Pod에 고유하고 안정적인 DNS 이름을 제공하기 위해 사용됩니다.
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-headless     # Headless Service의 이름. StatefulSet의 'serviceName'과 일치해야 합니다.
+spec:
+  clusterIP: None                   # 'None'으로 설정하여 Headless Service로 만듭니다.
+  selector:
+    app: elasticsearch              # 'app: elasticsearch' 라벨이 붙은 Pod를 대상으로 합니다.
+
+---
+
+# =================================================================
+# Elasticsearch ClusterIP Service
+# Kibana 등 다른 서비스들이 Elasticsearch에 쉽게 접근할 수 있도록 고정된 내부 IP를 제공합니다.
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-service       # ClusterIP Service의 이름
+spec:
+  selector:
+    app: elasticsearch              # 'app: elasticsearch' 라벨이 붙은 Pod를 대상으로 합니다.
+  ports:
+  - name: http                      # HTTP 통신 포트 (API용)
+    port: 9200
+    targetPort: 9200
+  - name: transport                 # 노드 간 통신 포트 (클러스터링용)
+    port: 9300
+    targetPort: 9300
+
+---
+
+# =================================================================
+# Elasticsearch StatefulSet
+# 상태 유지가 중요한 Elasticsearch를 배포하기 위해 사용합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+spec:
+  serviceName: "elasticsearch-headless" # 위에서 정의한 Headless Service를 지정
+  replicas: 1                           # Pod 복제본 수 (단일 노드 구성)
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      # ----------------- Init Container 설정 -----------------
+      # 메인 컨테이너가 시작되기 전에 먼저 실행되어 사전 준비 작업을 수행합니다.
+      initContainers:
+      - name: create-certs-init       # Init Container의 이름
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.9.1
+        command: ['bash', '-c',
+          # SSL 인증서 파일이 없으면 생성하고, 있으면 건너뛰는 스크립트
+          'if [[ ! -f /certs/elastic-certificates.p12 ]]; then
+             bin/elasticsearch-certutil cert -out /certs/elastic-certificates.p12 -pass "";
+             echo "Certificates created.";
+           else
+             echo "Certificates already exist.";
+           fi;
+           chown -R 1000:0 /certs'] # 생성된 파일의 소유권을 Elasticsearch 프로세스(uid 1000)에 부여
+        volumeMounts:
+        - name: certs                 # 아래 volumes에서 정의한 'certs' 볼륨을 마운트
+          mountPath: /certs           # 컨테이너 내 /certs 경로에 마운트하여 인증서 생성
+      # ----------------- Main Container 설정 -----------------
+      containers:
+      - name: elasticsearch-container
+        image: "{{ .Values.elasticsearch.image.repository }}:{{ .Values.elasticsearch.image.tag }}"
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: discovery.type
+          value: "single-node"        # 단일 노드로 Elasticsearch 클러스터를 실행
+        - name: cluster.name
+          value: "es-single"
+        - name: ELASTIC_PASSWORD      # elastic 계정의 비밀번호를 Secret에서 가져옴
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: PASSWORD
+        - name: bootstrap.memory_lock # 메모리 스와핑 방지를 위해 메모리 잠금 활성화
+          value: "true"
+        # X-Pack 보안 기능 활성화 및 SSL 설정
+        - name: xpack.security.enabled
+          value: "true"
+        - name: xpack.security.transport.ssl.enabled
+          value: "true"
+        - name: xpack.security.transport.ssl.verification_mode
+          value: "certificate"
+        - name: xpack.security.transport.ssl.keystore.path
+          value: "certs/elastic-certificates.p12" # Init Container가 생성한 인증서 경로
+        - name: xpack.security.transport.ssl.truststore.path
+          value: "certs/elastic-certificates.p12"
+        - name: "ES_JAVA_OPTS"        # JVM 힙 사이즈 설정
+          value: "{{ .Values.elasticsearch.javaOpts }}"
+        - name: TZ                     # 타임존 설정
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        # ----------------- 보안 컨텍스트 설정 -----------------
+        securityContext:
+          capabilities:
+            add: ["IPC_LOCK"]         # bootstrap.memory_lock=true 설정을 위해 필요한 권한
+        # ----------------- 볼륨 마운트 설정 -----------------
+        volumeMounts:
+        - name: data                  # 데이터 저장을 위한 영구 볼륨
+          mountPath: /usr/share/elasticsearch/data
+        - name: certs                 # Init Container와 공유하는 인증서 볼륨
+          mountPath: /usr/share/elasticsearch/config/certs
+      # ----------------- 볼륨 정의 -----------------
+      volumes:
+      - name: certs                   # Init Container와 Main Container가 통신하기 위한 임시 공유 볼륨
+        emptyDir: {}                  # Pod가 살아있는 동안만 유지되는 빈 디렉토리
+  # =================================================================
+  # PersistentVolumeClaim 템플릿
+  # StatefulSet의 각 Pod에 대해 고유한 영구 볼륨을 동적으로 생성합니다.
+  # =================================================================
+  volumeClaimTemplates:
+  - metadata:
+      name: data                    # PVC의 이름 (예: data-elasticsearch-0)
+    spec:
+      accessModes: [ "ReadWriteMany" ]  # ⬅️ RWO에서 RWX로 변경(ReadWriteOnce -> ReadWriteMany)
+      storageClassName: "nfs-client"    # ⬅️ local-path에서 nfs-client로 변경
+      resources:
+        requests:
+          storage: 20Gi             # 20GB의 저장 공간 요청
+
+{{- end }}

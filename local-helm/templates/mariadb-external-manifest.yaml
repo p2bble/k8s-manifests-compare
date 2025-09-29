@@ -1,0 +1,49 @@
+{{- if .Values.externalMariaDB.enabled }}
+
+# =================================================================
+# External MariaDB Service
+# 클러스터 내부의 Pod들이 'mariadb-service'라는 이름으로 외부 DB에 접근할 수 있도록
+# 고정된 DNS 엔드포인트를 제공합니다.
+# 이 Service에는 Pod를 찾는 'selector'가 없습니다.
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-service
+spec:
+  ports:
+  - name: mysql
+    protocol: TCP
+    port: 3306        # 서비스가 클러스터 내부에서 노출할 포트
+    targetPort: 3306  # 실제 외부 DB 서버가 Listen하는 포트
+
+---
+
+# =================================================================
+# External MariaDB Endpoints
+# 위 Service가 바라볼 실제 외부 DB 서버의 IP 주소와 포트를 수동으로 지정합니다.
+# =================================================================
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mariadb-service   # 반드시 위 Service의 이름과 동일해야 합니다.
+subsets:
+  - addresses:
+      # .Values.externalMariaDB.ipList 배열을 순회하며 IP를 추가
+      {{- range .Values.externalMariaDB.ipList }}
+      - ip: {{ . }}
+      {{- end }}
+      # ⚠️ 중요: 아래 IP 주소들을 현장의 실제 외부 MariaDB 서버 IP로 수정해야 합니다.
+      #- ip: "192.168.100.204"
+      #- ip: "<현장_DB서버_IP_2>"
+      #- ip: "<현장_DB서버_IP_3>"
+      # 배포 스크립트 사용 시 아래 값으로 설정 (위는 주석)
+      #- ip: "DB_IP_1_PLACEHOLDER"
+      #- ip: DB_IP_2_PLACEHOLDER
+      #- ip: DB_IP_3_PLACEHOLDER
+    ports:
+      - name: mysql
+        port: 3306      # 실제 외부 DB 서버가 Listen하는 포트
+        protocol: TCP
+
+{{- end }}

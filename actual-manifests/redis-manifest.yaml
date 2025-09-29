@@ -1,0 +1,103 @@
+# =================================================================
+# Redis PersistentVolumeClaim (PVC)
+# Redis 데이터를 영구적으로 저장하기 위한 스토리지 공간을 요청합니다.
+# =================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-pvc             # PVC의 고유한 이름. StatefulSet에서 이 이름을 참조합니다.
+  namespace: croms
+spec:
+  accessModes:
+    - ReadWriteMany                 # ⬅️ RWO에서 RWX로 변경
+  storageClassName: "ceph-filesystem"    # ⬅️ local-path에서 nfs-client로 변경
+  resources:
+    requests:
+      storage: 5Gi                  # 5GB의 저장 공간 요청
+
+---
+
+# =================================================================
+# Redis Service
+# Redis Pod에 대한 안정적인 내부 네트워크 엔드포인트를 제공합니다.
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack-headless       # 서비스의 이름. 다른 서비스들이 이 이름으로 Redis에 접근합니다.
+  namespace: croms
+spec:
+  type: NodePort                 # 클러스터 내부에서만 접근 가능한 고정 IP를 할당합니다.
+  selector:
+    app: redis-stack              # 'app: redis-stack' 라벨을 가진 Pod를 대상으로 트래픽을 전달합니다.
+  ports:
+  - name: redis                   # Redis 기본 포트
+    port: 6379
+    targetPort: 6379
+  - name: redis-insight           # RedisInsight GUI 툴을 위한 포트
+    port: 8001
+    targetPort: 8001
+
+---
+
+# =================================================================
+# Redis StatefulSet
+# 상태 유지가 중요한 Redis 데이터베이스를 배포합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-stack
+  namespace: croms
+spec:
+  serviceName: "redis-stack-headless" # 위에서 정의한 Service와 연결합니다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-stack
+  template:
+    metadata:
+      labels:
+        app: redis-stack
+    spec:
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+      - name: redis-stack-container
+        image: redis/redis-stack:7.2.0-v10 # Redis Stack 이미지 사용
+        ports:
+        - name: redis
+          containerPort: 6379
+        - name: insight
+          containerPort: 8001
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        - name: REDIS_PASSWORD         # Redis 비밀번호 (Secret에서 가져옴)
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: PASSWORD
+        # ----------------- 명령어 및 인자 설정 -----------------
+        command: ["redis-stack-server"] # 컨테이너 실행 명령어
+        args:                           # 명령어에 전달할 인자 목록
+        - "--requirepass"
+        - "$(REDIS_PASSWORD)"           # 환경 변수로 주입된 비밀번호를 사용
+        - "--appendonly"                # AOF(Append Only File) 지속성 활성화
+        - "yes"
+        - "--appendfsync"
+        - "everysec"
+        - "--auto-aof-rewrite-percentage"
+        - "100"
+        # ----------------- 볼륨 마운트 설정 -----------------
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data              # 컨테이너 내부의 데이터 저장 경로
+      # ----------------- 볼륨 정의 -----------------
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data-pvc     # 맨 위에서 정의한 PVC를 사용

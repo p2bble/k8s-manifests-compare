@@ -1,0 +1,218 @@
+# =================================================================
+# RabbitMQ ConfigMap (rabbitmq.conf / enabled_plugins)
+# =================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: croms
+data:
+  rabbitmq.conf: |
+    # 기본 리스터
+    listeners.tcp.default = 5672
+    management.tcp.port = 15672
+    loopback_users.guest = false
+
+    # K8S Peer Discovery
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.k8s.service_name = rabbitmq-headless
+    cluster_formation.onde_cleanup.only_log_warning = true
+    cluster_formation.randomized_startup_deply_range.min = 0
+    cluster_formation.randomized_startup_deply_range.max = 2
+
+    # 파티션 대응 / 큐 기본 타입
+    cluster_partition_handling = pause_minority
+    default_queue_type = quorum
+    # classic queue 를 병행해야 하면 queue_master_locator = min-masters
+
+    # 메모리 / 디스크 워터마크 (예시, 환경에 맞춰 조정)
+    vm_memory_high_watermark.relative = 0.5
+    disk_free_limit.absolute = 2GB
+
+  enabled_plugins: |
+    [rabbitmq_peer_discovery_k8s,rabbitmq_management].
+
+---
+# =================================================================
+# RabbitMQ Service
+# RabbitMQ Pod에 대한 네트워크 연결을 설정합니다. (NodePort 타입)
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  # Expose the management HTTP port on each node
+  namespace: croms
+  name: rabbitmq-service
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "vip-10-40-16-50"
+  labels:
+    app: rabbitmq
+spec:
+  type: LoadBalancer # Or LoadBalancer in production w/ proper security
+  loadBalancerIP: 10.40.16.50
+ # externalTrafficPolicy: Cluster
+  selector:
+    app: rabbitmq
+  ports:
+  - port: 15672
+    name: http
+    targetPort: 15672 # dashboard
+
+---
+# =================================================================
+# RabbitMQ Service (Peer Discovery 용)
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-headless
+  namespace: croms
+  labels:
+    app: rabbitmq
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: rabbitmq  
+  ports:
+  - port: 5672
+    name: amqp
+    targetPort: 5672
+  - port: 4369
+    name: epmd
+  - port: 25672
+    name: rabbitmq-dist
+
+---
+# =================================================================
+# PodDisruptionBudget
+# =================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rabbitmq-pdb
+  namespace: croms
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: rabbitmq
+
+---
+# =================================================================
+# RabbitMQ StatefulSet
+# 상태 유지가 중요한 RabbitMQ 메시지 브로커를 배포합니다.
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: croms
+spec:
+  serviceName: rabbitmq-headless # 위에서 정의한 Service와 연결합니다.
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      initContainers:
+        - name: fix-cookie-perms
+          image: docker.io/library/busybox:1.31.1
+          command: ["sh","-c"]
+          args:
+            - chown -R 999:999 /var/lib/rabbitmq && chmod 400 /var/lib/rabbitmq/.erlang.cookie || true
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+      - name: rabbitmq-container
+        image: rabbitmq:3.11.11-management # 관리 플러그인이 포함된 RabbitMQ 이미지
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: amqp
+          containerPort: 5672
+        - name: epmd
+          containerPort: 4369
+        - name: rabbitmq-dist
+          containerPort: 25672
+        - name: management
+          containerPort: 15672
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: RABBITMQ_USE_LONGNAME
+          value: "true"
+        - name: RABBITMQ_NODENAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        # 기본 계정
+        - name: RABBITMQ_DEFAULT_USER  # 기본 사용자 이름 (Secret에서 가져옴)
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: RABBITMQ_DEFAULT_PASS
+        - name: RABBITMQ_DEFAULT_PASS  # 기본 사용자 비밀번호 (Secret에서 가져옴)
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: RABBITMQ_DEFAULT_PASS
+        - name: RABBITMQ_DEFAULT_VHOST # 기본 가상 호스트(vhost) 이름
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: RABBITMQ_DEFAULT_VHOST
+        - name: RABBITMQ_ERLANG_COOKIE # 클러스터 구성 시 노드 간 인증을 위한 공유 비밀 값
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: ERLANG_COOKIE
+        # ----------------- 볼륨 마운트 설정 -----------------
+        volumeMounts:
+        - name: rabbitmq-data        # 아래 volumeClaimTemplates에서 생성될 PVC의 이름
+          mountPath: /var/lib/rabbitmq # RabbitMQ 데이터가 저장될 컨테이너 내부 경로
+        - name: rabbitmq-config
+          mountPath: /etc/rabbitmq/rabbitmq.conf
+          subPath: rabbitmq.conf
+        - name: rabbitmq-config
+          mountPath: /etc/rabbitmq/enabled_plugins
+          subPath: enabled_plugins
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+      volumes:
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+            items:
+              - {key: rabbitmq.conf, path: rabbotmq.conf}
+              - {key: enabled_plugins, path: enabled_plugins}
+
+  # =================================================================
+  # PersistentVolumeClaim 템플릿
+  # StatefulSet의 각 Pod에 대해 고유한 영구 볼륨을 동적으로 생성합니다.
+  # =================================================================
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-data           # PVC의 이름 (예: rabbitmq-data-rabbitmq-0)
+    spec:
+      accessModes: [ "ReadWriteOnce" ]    # ⬅️ RWO에서 RWX로 변경
+      storageClassName: "ceph-filesystem"      # ⬅️ local-path에서 nfs-client로 변경
+      resources:
+        requests:
+          storage: 10Gi              # 8GB의 저장 공간 요청

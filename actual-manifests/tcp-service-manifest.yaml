@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-services
+  namespace: ingress-nginx
+data:
+  "1883": "croms/emqx-service:1883"        # MQTT
+  "15672": "croms/rabbitmq-service:15672"  # RabbitMQ Dashboard (HTTP)
+  "8001": "croms/redis-stack-service:8081"       # RedisInsight
+  "5601": "croms/kibana-service:5601"              # Kibana

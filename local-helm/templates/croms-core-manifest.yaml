@@ -1,0 +1,150 @@
+{{- if .Values.core.enabled }}
+
+# =================================================================
+# CROMS Core Service Deployment
+# croms-core-service 애플리케이션의 Pod를 배포하고 관리합니다.
+# =================================================================
+apiVersion: apps/v1                 # 쿠버네티스 API 버전
+kind: Deployment                    # 리소스의 종류를 'Deployment'로 지정
+metadata:
+  name: croms-core-service          # Deployment의 고유한 이름
+  labels:
+    app: croms-core-service         # Deployment를 식별하기 위한 라벨
+spec:
+  # .Values.auth.replicaCount 값을 참조하여 Pod 수를 동적으로 설정
+  replicas: {{ .Values.core.replicaCount }}
+  selector:
+    matchLabels:
+      app: croms-core-service       # 이 Deployment가 관리할 Pod를 찾는 라벨 셀렉터
+  template:                         # Pod를 생성하기 위한 템플릿
+    metadata:
+      labels:
+        app: croms-core-service     # 생성될 Pod에 부여할 라벨. 위 'selector'와 일치해야 합니다.
+    spec:
+      imagePullSecrets:             # 비공개 컨테이너 레지스트리에서 이미지를 가져올 때 필요한 인증 정보
+        - name: croms-registry-cred
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+        - name: core-service-container # 컨테이너의 이름
+        # 글로벌 값과 서비스별 값을 조합하여 이미지 주소를 동적으로 생성
+          image: "{{ .Values.global.registry }}/{{ .Values.core.image.name }}:{{ .Values.core.image.tag | default .Values.global.imageTag }}"
+        # 글로벌 이미지 Pull 정책 사용
+          imagePullPolicy: {{ .Values.global.pullPolicy }}
+          ports:
+        # 서비스 포트 번호를 동적으로 설정
+            - containerPort: {{ .Values.core.port }}
+          # ----------------- 리소스 요청 및 제한 설정 -----------------
+          resources:
+            requests:                   # Pod 스케줄링을 위해 요청하는 최소 리소스
+              cpu: "1"                  # CPU 1 코어
+              memory: "4Gi"             # 메모리 4 GiB
+            limits:                     # 컨테이너가 사용할 수 있는 최대 리소스 한도
+              cpu: "2"                  # CPU 2 코어
+              memory: "6Gi"             # 메모리 6 GiB
+          # ----------------- 환경 변수 설정 -----------------
+          env:
+            - name: JAVA_OPTS           # JVM 옵션
+              value: "-Xms4g -Xmx4g"
+            - name: ACTION_PROFILE     # 애플리케이션 프로파일
+              value: "k8s"
+            - name: CROMS_SERVER_HOST   # Pod의 IP 주소를 환경 변수로 주입
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # 다양한 모듈(RabbitMQ, MariaDB, Redis, Elasticsearch, MQTT) 접속 정보를 환경변수로 설정
+            # 대부분의 비밀번호는 Secret 리소스를 참조하여 안전하게 주입합니다.
+            - name: MODULES_RABBITMQ_HOST
+              value: "rabbitmq-service"
+            - name: MODULES_RABBITMQ_PORT
+              value: "5672"
+            - name: MODULES__RABBITMQ_USERNAME
+              value: "croms"
+            - name: MODULES__RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: PASSWORD
+            - name: MODULES_MARIADB_HOST
+              value: "mariadb-service"
+            - name: MODULES_MARIADB_USERNAME
+              value: "cromsDb@clobot-mysql"
+            - name: MODULES_MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-secret
+                  key: PASSWORD
+            - name: SPRING_FLYWAY_ENABLED
+              value: "true"
+            - name: SPRING_FLYWAY_VALIDATE_ON_MIGRATE
+              value: "false"
+            - name: SPRING_FLYWAY_REPAIR_ON_MIGRATE
+              value: "true"
+            - name: MODULES_REDIS_HOST
+              value: "redis-stack-service"
+            - name: MODULES_REDIS_PORT
+              value: "6379"
+            - name: MODULES_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: PASSWORD
+            - name: MODULES_ELASTICSEARCH_HOST
+              value: "elasticsearch-0.elasticsearch-headless.croms.svc.cluster.local"
+            - name: MODULES_ELASTICSEARCH_ID
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-secret
+                  key: USERNAME
+            - name: MODULES_ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-secret
+                  key: PASSWORD
+            - name: MODULES_MQTT_HOST
+              value: "emqx-0.emqx-headless"
+            - name: MODULES_MQTT_PORT
+              value: "1883"
+            - name: MODULES_MQTT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-secret
+                  key: USERNAME
+            - name: MODULES_MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-secret
+                  key: PASSWORD
+            - name: COMMON_DOWNLOAD_URL
+              value: "http://dev.croms.co.kr:9090/upload/"
+            - name: CROMS_HEARTBEAT_INTERVAL
+              value: "30000"
+          # ----------------- 볼륨 마운트 설정 -----------------
+          volumeMounts:
+            - name: upload-storage           # 아래 volumes에서 정의한 볼륨의 이름
+              mountPath: /opt/cloud/upload    # 컨테이너 내부에 마운트할 경로
+      # ----------------- 볼륨 정의 -----------------
+      volumes:
+        - name: upload-storage
+          persistentVolumeClaim:            # PersistentVolumeClaim(PVC)을 사용하여 볼륨을 정의
+            claimName: croms-upload-pvc     # 'croms-upload-pvc'라는 이름의 PVC를 사용
+
+---
+
+# =================================================================
+# CROMS Core Service
+# croms-core-service Pod에 안정적인 내부 네트워크 엔드포인트를 제공합니다.
+# =================================================================
+apiVersion: v1                  # 쿠버네티스 API 버전
+kind: Service                   # 리소스의 종류를 'Service'로 지정
+metadata:
+  name: croms-core-service      # 서비스의 고유한 이름
+spec:
+  type: ClusterIP               # 클러스터 내부에서만 접근 가능한 고정 IP를 할당하는 타입
+  selector:
+    app: croms-core-service     # 이 서비스가 트래픽을 전달할 Pod를 선택하는 라벨
+  ports:
+    - name: http
+      port: 9195                # 서비스 자체가 노출할 포트 번호
+      targetPort: 9195          # 서비스가 트래픽을 전달할 대상 Pod의 컨테이너 포트 번호
+
+{{- end }}

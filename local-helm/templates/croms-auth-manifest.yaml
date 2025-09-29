@@ -1,0 +1,107 @@
+{{- if .Values.auth.enabled }}
+
+# =================================================================
+# CROMS Auth Service Deployment
+# croms-auth-service 애플리케이션의 Pod를 배포하고 관리합니다.
+# =================================================================
+apiVersion: apps/v1                 # 쿠버네티스 API 버전
+kind: Deployment                    # 리소스의 종류를 'Deployment'로 지정
+metadata:
+  name: croms-auth-service          # Deployment의 고유한 이름
+  labels:
+    app: croms-auth-service         # Deployment를 식별하기 위한 라벨
+spec:
+  # .Values.auth.replicaCount 값을 참조하여 Pod 수를 동적으로 설정
+  replicas: {{ .Values.auth.replicaCount }}
+  selector:
+    matchLabels:
+      app: croms-auth-service       # 이 Deployment가 관리할 Pod를 찾는 라벨 셀렉터
+  template:                         # Pod를 생성하기 위한 템플릿
+    metadata:
+      labels:
+        app: croms-auth-service     # 생성될 Pod에 부여할 라벨. 위 'selector'와 일치해야 합니다.
+    spec:
+      imagePullSecrets:             # 비공개 컨테이너 레지스트리에서 이미지를 가져올 때 필요한 인증 정보
+      - name: croms-registry-cred
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+      - name: auth-service-container  # 컨테이너의 이름
+        image: "{{ .Values.global.registry }}/{{ .Values.auth.image.name }}:{{ .Values.auth.image.tag | default .Values.global.imageTag }}"
+        # 글로벌 이미지 Pull 정책 사용
+        imagePullPolicy: {{ .Values.global.pullPolicy }}
+        ports:
+        # 서비스 포트 번호를 동적으로 설정
+        - containerPort: {{ .Values.auth.port }}
+        # ----------------- 리소스 요청 및 제한 설정 -----------------
+        resources:
+          requests:                     # Pod 스케줄링을 위해 요청하는 최소 리소스
+            cpu: "{{ .Values.auth.resources.requests.cpu }}"                     # values에서 값 지정
+            memory: "{{ .Values.auth.resources.requests.memory }}"               # values에서 값 지정
+          limits:                       # 컨테이너가 사용할 수 있는 최대 리소스 한도
+            cpu: "{{ .Values.auth.resources.limits.cpu }}"                       # values에서 값 지정
+            memory: "{{ .Values.auth.resources.limits.memory }}"                 # values에서 값 지정
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+        - name: JAVA_OPTS             # JVM 옵션
+          value: "-Xms4G -Xmx4G"
+        - name: ACTION_PROFILE       # 애플리케이션 프로파일
+          value: "single"
+        - name: CROMS_SERVER_HOST     # Pod의 IP 주소를 환경 변수로 주입
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        # Redis 접속 정보
+        - name: MODULES_REDIS_HOST
+          value: "redis-stack-service"
+        - name: MODULES_REDIS_PORT
+          value: "6379"
+        - name: MODULES_REDIS_PASSWORD # Secret 리소스로부터 Redis 비밀번호를 가져옴
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: PASSWORD
+        # RabbitMQ 접속 정보
+        - name: MODULES_RABBITMQ_HOST
+          value: "rabbitmq-service"
+        - name: MODULES_RABBITMQ_PORT
+          value: "5672"
+        - name: MODULES_RABBITMQ_USERNAME
+          value: "croms"
+        - name: MODULES_RABBITMQ_PASSWORD # Secret 리소스로부터 RabbitMQ 비밀번호를 가져옴
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: PASSWORD
+        # MariaDB 접속 정보
+        - name: MODULES_MARIADB_HOST
+          value: "mariadb-service"
+        - name: MODULES_MARIADB_USERNAME
+          value: "cromsDb@clobot-mysql"
+        - name: MODULES_MARIADB_PASSWORD # Secret 리소스로부터 MariaDB 비밀번호를 가져옴
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secret
+              key: PASSWORD
+
+---
+
+# =================================================================
+# CROMS Auth Service
+# croms-auth-service Pod에 안정적인 내부 네트워크 엔드포인트를 제공합니다.
+# =================================================================
+apiVersion: v1                  # 쿠버네티스 API 버전
+kind: Service                   # 리소스의 종류를 'Service'로 지정
+metadata:
+  name: croms-auth-service      # 서비스의 고유한 이름
+  labels:
+    app: croms-auth-service     # 서비스를 식별하기 위한 라벨
+spec:
+  type: ClusterIP               # 클러스터 내부에서만 접근 가능한 고정 IP를 할당하는 타입
+  selector:
+    app: croms-auth-service     # 이 서비스가 트래픽을 전달할 Pod를 선택하는 라벨. 'app: croms-auth-service' 라벨이 붙은 Pod를 찾습니다.
+  ports:
+  - protocol: TCP
+    port: 9194                  # 서비스 자체가 노출할 포트 번호
+    targetPort: 9194            # 서비스가 트래픽을 전달할 대상 Pod의 컨테이너 포트 번호
+
+{{- end }}

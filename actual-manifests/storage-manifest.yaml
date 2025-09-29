@@ -1,0 +1,84 @@
+# =================================================================
+# PersistentVolume (PV)
+# 클러스터의 실제 스토리지(이 경우, 노드의 특정 디렉토리)를 정의하는 리소스입니다.
+# 클러스터 관리자가 미리 준비해두는 '창고'와 같습니다.
+# =================================================================
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: croms-upload-pv          # PersistentVolume의 고유한 이름
+# spec:
+#   storageClassName: ""           # hostPath 정적 바인딩이면 보통 비움
+#   capacity:
+#     storage: 100Gi              # 이 PV가 제공하는 총 저장 공간의 크기
+#   accessModes:
+#     - ReadWriteOnce             # 볼륨 접근 모드 (하나의 노드에서만 읽고 쓰기 가능)
+#   persistentVolumeReclaimPolicy: Retain # PVC가 삭제되어도 PV와 데이터는 보존
+#   volumeMode: Filesystem
+#   hostPath:                       # 노드의 파일시스템을 스토리지로 사용
+#     path: /opt/cephfs/volumes/croms/upload # 노드에 있는 실제 디렉토리 경로
+#     type: DirectoryOrCreate       # 위 경로에 디렉토리가 없으면 자동으로 생성
+
+---
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: croms-logs-pv           # PersistentVolume의 고유한 이름
+# spec:
+#   storageClassName: ""          # hostPath 정적 바인딩이면 보통 비움
+#   capacity:
+#     storage: 100Gi              # 이 PV가 제공하는 총 저장 공간의 크기
+#   accessModes:
+#     - ReadWriteOnce             # 볼륨 접근 모드 (하나의 노드에서만 읽고 쓰기 가능)
+#   persistentVolumeReclaimPolicy: Retain # PVC가 삭제되어도 PV와 데이터는 보존
+#   volumeMode: Filesystem
+#   hostPath:                       # 노드의 파일시스템을 스토리지로 사용
+#     path: /opt/cephfs/volumes/croms/logs # 노드에 있는 실제 디렉토리 경로
+#     type: DirectoryOrCreate       # 위 경로에 디렉토리가 없으면 자동으로 생성
+
+---
+# =================================================================
+# PersistentVolumeClaim (PVC)
+# 사용자가 PV(스토리지)를 요청하기 위해 사용하는 리소스입니다.
+# 'croms' 네임스페이스에서 '창고'의 공간을 특정 크기만큼 할당해달라고 요청하는 '신청서'와 같습니다.
+# =================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-upload-pvc         # PVC의 고유한 이름
+  namespace: croms                # 이 PVC가 생성될 네임스페이스
+spec:
+  accessModes:
+    - ReadWriteMany             # PV와 동일한 접근 모드를 요청
+  storageClassName: "ceph-filesystem"
+  resources:
+    requests:
+      storage: 100Gi                # 필요한 스토리지 공간의 크기 (100Gi 중 50Gi를 요청)
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-core-logs-pvc         # PVC의 고유한 이름
+  namespace: croms                # 이 PVC가 생성될 네임스페이스
+spec:
+  accessModes:
+    - ReadWriteMany             # PV와 동일한 접근 모드를 요청
+  storageClassName: "ceph-filesystem"           # PV 와 동일하게 맞춰야 매칭됨
+  resources:
+    requests:
+      storage: 100Gi                # 필요한 스토리지 공간의 크기 (100Gi 중 50Gi를 요청)
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-auth-logs-pvc         # PVC의 고유한 이름
+  namespace: croms                # 이 PVC가 생성될 네임스페이스
+spec:
+  accessModes:
+    - ReadWriteMany             # PV와 동일한 접근 모드를 요청
+  storageClassName: "ceph-filesystem"           # PV 와 동일하게 맞춰야 매칭됨
+  resources:
+    requests:
+      storage: 100Gi                # 필요한 스토리지 공간의 크기 (100Gi 중 50Gi를 요청)
