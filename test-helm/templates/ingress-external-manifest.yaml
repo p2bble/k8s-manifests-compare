@@ -1,0 +1,43 @@
+# =================================================================
+# Ingress Rules for CROMS Application
+# Ingress Controller에 도메인 및 경로 기반의 라우팅 규칙을 정의합니다.
+# =================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: external-ingress
+  namespace: croms                  # 애플리케이션이 배포된 'croms' 네임스페이스에 생성됩니다.
+  annotations:                      # Ingress Controller의 동작을 상세하게 제어하기 위한 설정
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx           # 'nginx' Ingress Class를 사용하는 Ingress Controller가 이 규칙을 처리하도록 지정
+    #  tls:                              # HTTPS 통신을 위한 TLS(SSL) 인증서 설정
+    #  - hosts:
+    #    - k8s-incheon-airport.croms.co.kr # TLS 인증서가 적용될 호스트 이름
+    #    secretName: croms-tls-secret    # TLS 인증서와 개인키가 저장된 Secret의 이름
+  rules:
+    #  - host: 10.40.16.21 # 이 호스트 이름으로 들어오는 요청에 대해 아래 규칙을 적용
+  - http:
+      paths:                        # 경로 기반 라우팅 규칙 목록
+      - path: /dt-api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: stans-service-proxy
+            port:
+              number: 8088
+      - path: /cms5445(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: cms-front-service
+            port:
+              number: 5445
+      - path: /cms5545(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545

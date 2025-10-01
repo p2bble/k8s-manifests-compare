@@ -1,0 +1,164 @@
+# =================================================================
+# Global & Environment Specific Configuration
+# =================================================================
+global:
+  # ## 현장 배포 시 수정 ##
+  # 사내 테스트: "croms"
+  # 인천공항 현장: "croms"
+  namespace: "croms"
+
+  # ## 현장 배포 시 수정 ##
+  # 사내 테스트: "registry.clobot.co.kr/croms/edge/croms-incheon-airport-k8s"
+  # 인천공항 현장: "croms.clobot.co.kr"
+  registry: "registry.clobot.co.kr/croms/edge/croms-incheon-airport-k8s"
+  pullPolicy: IfNotPresent
+
+# =================================================================
+# Ingress Settings
+# =================================================================
+ingress:
+  internal:
+    enabled: true
+    className: "nginx"
+  external:
+    enabled: true
+    className: "nginx"
+  cms:
+    enabled: true
+    className: "nginx"
+    namespace: "cms"
+
+# =================================================================
+# Application Services
+# =================================================================
+cromsAuth:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: "croms-auth-service"
+    tag: "v1.0.2"
+  resources:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits: { cpu: "2", memory: "6Gi" }
+
+cromsCore:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: "croms-core-service"
+    tag: "v1.0.15"
+  resources:
+    requests: { cpu: "1", memory: "16Gi" }
+    limits: { cpu: "2", memory: "24Gi" }
+
+cromsFront:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: "croms-front-service"
+    tag: "v1.0.7"
+
+cmsBackend:
+  enabled: true
+  namespace: "croms"
+  image:
+    repository: "registry.local"
+    name: "cms-backend-app"
+    tag: "v1.0.6"
+  service:
+    type: NodePort
+    port: 5545
+    nodePort: 32166
+
+cmsFrontend:
+  enabled: true
+  namespace: "croms"
+  image:
+    repository: "registry.local"
+    name: "cms-front-app"
+    tag: "v1.0.4"
+  service:
+    type: NodePort
+    port: 5445
+    nodePort: 31028
+
+# =================================================================
+# Infrastructure Services (Clustered)
+# =================================================================
+rabbitmq:
+  enabled: true
+  cluster: true
+  replicaCount: 3
+  image:
+    repository: "rabbitmq"
+    tag: "3.11.11-management"
+  storage:
+    storageClassName: "ceph-filesystem"
+    size: 10Gi
+
+redis:
+  enabled: true
+  cluster: true
+  replicaCount: 6
+  image:
+    repository: "redis/redis-stack"
+    tag: "7.2.0-v10"
+  storage:
+    storageClassName: "ceph-filesystem"
+    size: 5Gi
+
+emqx:
+  enabled: true
+  cluster: true
+  replicaCount: 3
+  image:
+    repository: "docker.io/emqx/emqx"
+    tag: "4.3.22"
+
+elasticsearch:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: "docker.elastic.co/elasticsearch/elasticsearch"
+    tag: "7.9.1"
+  storage:
+    storageClassName: "ceph-filesystem"
+    size: 100Gi
+
+# =================================================================
+# Other Infrastructure & UI Tools
+# =================================================================
+kibana:
+  enabled: true
+  image:
+    repository: "docker.elastic.co/kibana/kibana"
+    tag: "7.9.1"
+  service:
+    type: NodePort
+    nodePort: 31564
+
+p3xRedisUi:
+  enabled: true
+  image:
+    repository: "patrikx3/p3x-redis-ui"
+    tag: "latest"
+  service:
+    type: NodePort
+    port: 7843
+    nodePort: 30843
+  storage:
+    storageClassName: "ceph-filesystem"
+    size: 5Gi
+
+# =================================================================
+# Storage & PVCs
+# =================================================================
+storage:
+  enabled: true
+  storageClassName: "ceph-filesystem"
+  cms:
+    size: 100Gi
+  croms:
+    uploadSize: 100Gi
+    coreLogsSize: 100Gi
+    authLogsSize: 100Gi

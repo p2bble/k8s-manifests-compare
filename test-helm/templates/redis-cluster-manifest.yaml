@@ -1,0 +1,108 @@
+{{- if and .Values.redis.enabled .Values.redis.cluster }}
+# =================================================================
+# Redis Headless Service (for discovery)
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack-headless
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: redis-stack
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: redis-stack
+  ports:
+  - name: redis
+    port: 6379
+  - name: cluster-bus
+    port: 16379
+
+---
+# =================================================================
+# Redis ClusterIP Service
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: redis-stack
+  ports:
+  - name: redis
+    port: 6379
+  - name: redis-insight
+    port: 8001
+  - name: cluster-bus
+    port: 16379
+
+---
+# =================================================================
+# Redis StatefulSet
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-stack
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  serviceName: redis-stack-headless
+  replicas: {{ .Values.redis.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: redis-stack
+  template:
+    metadata:
+      labels:
+        app: redis-stack
+    spec:
+      containers:
+      - name: redis-stack-container
+        image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+        imagePullPolicy: {{ .Values.global.pullPolicy }}
+        ports:
+        - name: redis
+          containerPort: 6379
+        - name: insight
+          containerPort: 8001
+        - name: cluster-bus
+          containerPort: 16379
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: PASSWORD
+        command: ["/bin/sh","-c"]
+        args:
+          - |
+            exec redis-stack-server \
+              --requirepass "$REDIS_PASSWORD" \
+              --masterauth "$REDIS_PASSWORD" \
+              --cluster-enabled yes \
+              --cluster-config-file /data/nodes.conf \
+              --cluster-node-timeout 5000 \
+              --cluster-announce-ip "$POD_IP"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.redis.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.redis.storage.size }}
+{{- end }}

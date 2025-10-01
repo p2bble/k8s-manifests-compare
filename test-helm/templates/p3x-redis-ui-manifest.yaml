@@ -1,0 +1,72 @@
+# =================================================================
+# Redis PersistentVolumeClaim (PVC)
+# Redis 데이터를 영구적으로 저장하기 위한 스토리지 공간을 요청합니다.
+# =================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: p3x-data-pvc             # PVC의 고유한 이름. StatefulSet에서 이 이름을 참조합니다.
+  namespace: croms
+spec:
+  accessModes:
+    - ReadWriteOnce                 # ⬅️ RWO에서 RWX로 변경
+  storageClassName: "ceph-filesystem"    # ⬅️ local-path에서 nfs-client로 변경
+  resources:
+    requests:
+      storage: 5Gi                  # 5GB의 저장 공간 요청
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: p3x-redis-ui-nodeport
+  namespace: croms
+spec:
+  type: NodePort
+  ports:
+    - port: 7843
+      targetPort: 7843
+      nodePort: 30843   # 원하는 NodePort 지정
+  selector:
+    app: p3x-redis-ui
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: p3x-redis-ui
+  namespace: croms
+spec:
+  serviceName: p3x-redis-ui
+  replicas: 1
+  selector:
+    matchLabels:
+      app: p3x-redis-ui
+  template:
+    metadata:
+      labels:
+        app: p3x-redis-ui
+    spec:
+      containers:
+        - name: p3x-redis-ui
+          image: patrikx3/p3x-redis-ui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7843
+              name: http
+          env:
+            - name: P3X_REDIS_UI_PORT
+              value: "7843"
+            - name: P3X_REDIS_UI_PATH
+              value: "/"
+            - name: P3X_REDIS_UI_HOST
+              value: "0.0.0.0"
+          # ----------------- 볼륨 마운트 설정 -----------------
+          volumeMounts:
+          - name: p3x-data
+            mountPath: /settings              # 컨테이너 내부의 데이터 저장 경로
+      # ----------------- 볼륨 정의 -----------------
+      volumes:
+      - name: p3x-data
+        persistentVolumeClaim:
+          claimName: p3x-data-pvc     # 맨 위에서 정의한 PVC를 사용

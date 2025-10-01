@@ -1,0 +1,147 @@
+---
+# =================================================================
+# # Ingress Rules for CROMS Application
+# # Ingress Controller에 도메인 및 경로 기반의 라우팅 규칙을 정의합니다.
+# # =================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cms-ingress
+  namespace: cms                  # 애플리케이션이 배포된 'croms' 네임스페이스에 생성됩니다.
+  annotations:                      # Ingress Controller의 동작을 상세하게 제어하기 위한 설정
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"     # HTTP 접속을 HTTPS로 강제 리다이렉트하지 않음
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"      # 백엔드 서비스 응답 대기 시간 (초)
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"      # 백엔드 서비스로 요청 전송 대기 시간 (초)
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"            # 클라이언트 요청 본문 크기 제한 없음 (파일 업로드 등)
+    nginx.ingress.kubernetes.io/proxy-upgrade: "websocket"      # WebSocket 프로토콜 지원 활성화
+    nginx.ingress.kubernetes.io/proxy-connection: "Upgrade"
+spec:
+  ingressClassName: nginx           # 'nginx' Ingress Class를 사용하는 Ingress Controller가 이 규칙을 처리하도록 지정
+    #  tls:                              # HTTPS 통신을 위한 TLS(SSL) 인증서 설정
+    #  - hosts:
+    #    - k8s-incheon-airport.croms.co.kr # TLS 인증서가 적용될 호스트 이름
+    #    secretName: croms-tls-secret    # TLS 인증서와 개인키가 저장된 Secret의 이름
+  rules:
+    #  - host: 10.40.16.21 # 이 호스트 이름으로 들어오는 요청에 대해 아래 규칙을 적용
+  - http:
+      paths:
+      - path: /robot
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /file
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /contentfile
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /ct
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /scene
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /template_thumbnail
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /content_thumbnail
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /thumbnail
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /menu_thumbnail
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /sf
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /emotion
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /eai
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /docent
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /act
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /stats
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /cr
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-backend-service
+            port:
+              number: 5545
+      - path: /cms
+        pathType: Prefix
+        backend:
+          service:
+            name: cms-front-service
+            port:
+              number: 5445
+  

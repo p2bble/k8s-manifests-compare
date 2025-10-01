@@ -1,0 +1,125 @@
+{{- if .Values.cromsAuth.enabled }}
+
+# =================================================================
+# CROMS Auth Service
+# croms-auth-service Pod에 안정적인 내부 네트워크 엔드포인트를 제공합니다.
+# =================================================================
+apiVersion: v1                  # 쿠버네티스 API 버전
+kind: Service                   # 리소스의 종류를 'Service'로 지정
+metadata:
+  name: croms-auth-service      # 서비스의 고유한 이름
+  namespace: croms              # 이 서비스가 생성될 네임스페이스
+  labels:
+    app: croms-auth-service     # 서비스를 식별하기 위한 라벨
+spec:
+  type: ClusterIP               # 클러스터 내부에서만 접근 가능한 고정 IP를 할당하는 타입
+  selector:
+    app: croms-auth-service     # 이 서비스가 트래픽을 전달할 Pod를 선택하는 라벨. 'app: croms-auth-service' 라벨이 붙은 Pod를 찾습니다.
+  ports:
+  - name: http                  # HTTP 포트 설정
+    protocol: TCP
+    port: 9194                  # 서비스 자체가 노출할 포트 번호
+    targetPort: 9194            # 서비스가 트래픽을 전달할 대상 Pod의 컨테이너 포트 번호
+
+---
+# =================================================================
+# CROMS Auth Service Deployment
+# croms-auth-service 애플리케이션의 Pod를 배포하고 관리합니다.
+# =================================================================
+apiVersion: apps/v1                 # 쿠버네티스 API 버전
+kind: Deployment                    # 리소스의 종류를 'Deployment'로 지정
+metadata:
+  name: croms-auth-service          # Deployment의 고유한 이름
+  namespace: croms                  # 이 Deployment가 생성될 네임스페이스
+  labels:
+    app: croms-auth-service         # Deployment를 식별하기 위한 라벨
+spec:
+  replicas: 1                       # 생성할 Pod의 복제본 수
+  selector:
+    matchLabels:
+      app: croms-auth-service       # 이 Deployment가 관리할 Pod를 찾는 라벨 셀렉터
+  template:                         # Pod를 생성하기 위한 템플릿
+    metadata:
+      labels:
+        app: croms-auth-service     # 생성될 Pod에 부여할 라벨. 위 'selector'와 일치해야 합니다.
+    spec:
+      imagePullSecrets:             # 비공개 컨테이너 레지스트리에서 이미지를 가져올 때 필요한 인증 정보
+      - name: croms-registry-cred
+      # ----------------- 컨테이너 설정 -----------------
+      containers:
+      - name: auth-service-container  # 컨테이너의 이름
+        image: croms.clobot.co.kr/croms-auth-service:v1.0.2 # 사용할 컨테이너 이미지
+        imagePullPolicy: IfNotPresent       # Pod 생성 시 항상 이미지를 새로 다운로드
+        ports:
+        - containerPort: 9194         # 컨테이너가 노출할 포트
+          name: http
+        # ----------------- 리소스 요청 및 제한 설정 -----------------
+        resources:
+          requests:                     # Pod 스케줄링을 위해 요청하는 최소 리소스
+            cpu: "1"                    # CPU 1 코어
+            memory: "4Gi"               # 메모리 4 GiB
+          limits:                       # 컨테이너가 사용할 수 있는 최대 리소스 한도
+            cpu: "2"                    # CPU 2 코어
+            memory: "6Gi"               # 메모리 6 GiB
+        # ----------------- 환경 변수 설정 -----------------
+        env:
+          - name: JAVA_OPTS             # JVM 옵션
+            value: "-Xms4G -Xmx4G"
+          - name: ACTION_PROFILE       # 애플리케이션 프로파일
+            value: "k8s"
+          - name: CROMS_SERVER_HOST     # Pod의 IP 주소를 환경 변수로 주입
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          # Redis 접속 정보
+          - name: MODULES_REDIS_HOST
+            value: "redis-stack-0.redis-stack-headless"
+          - name: MODULES_REDIS_PORT
+            value: "6379"
+          - name: MODULES_REDIS_PASSWORD # Secret 리소스로부터 Redis 비밀번호를 가져옴
+            valueFrom:
+              secretKeyRef:
+                name: redis-secret
+                key: PASSWORD
+          # RabbitMQ 접속 정보
+          - name: MODULES_RABBITMQ_HOST
+            value: "rabbitmq-0.rabbitmq-headless"
+          - name: MODULES_RABBITMQ_PORT
+            value: "5672"
+          - name: MODULES_RABBITMQ_USERNAME
+            value: "croms"
+          - name: MODULES_RABBITMQ_PASSWORD # Secret 리소스로부터 RabbitMQ 비밀번호를 가져옴
+            valueFrom:
+              secretKeyRef:
+                name: rabbitmq-secret
+                key: PASSWORD
+          # MariaDB 접속 정보
+          - name: MODULES_MARIADB_HOST
+            value: "mariadb-service"
+          - name: MODULES_MARIADC_DATASOURCE_URL
+            valueFrom:
+              configMapKeyRef:
+                name: mariadb-config
+                key: DATASOURCE_URL
+          - name: MODULES_MARIADB_USERNAME
+            valueFrom:
+              configMapKeyRef:
+                name: mariadb-config
+                key: USERNAME
+          - name: MODULES_MARIADB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mariadb-secret
+                key: PASSWORD
+          # ----------------- 볼륨 마운트 설정 -----------------
+        volumeMounts:
+          - name: log-storage           # 아래 volumes에서 정의한 볼륨의 이름
+            mountPath: /opt/cloud/log    # 컨테이너 내부에 마운트할 경로
+      # ----------------- 볼륨 정의 -----------------
+      volumes:
+        - name: log-storage
+          persistentVolumeClaim:            # PersistentVolumeClaim(PVC)을 사용하여 볼륨을 정의
+            claimName: croms-auth-logs-pvc     # 'croms-upload-pvc'라는 이름의 PVC를 사용
+
+
+{{- end }}

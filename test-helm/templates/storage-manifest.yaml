@@ -1,0 +1,53 @@
+{{- if .Values.storage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cms-pvc
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.cms.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-upload-pvc
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.croms.uploadSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-core-logs-pvc
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.croms.coreLogsSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: croms-auth-logs-pvc
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.croms.authLogsSize }}
+{{- end }}

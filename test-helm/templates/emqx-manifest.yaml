@@ -1,0 +1,125 @@
+{{- if and .Values.emqx.enabled (not .Values.emqx.cluster) }}
+
+# =================================================================
+# EMQX Service
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: emqx
+spec:
+  type: NodePort
+  selector:
+    app: emqx
+  ports:
+  - name: mqtt
+    port: 1883
+    targetPort: 1883
+    nodePort: 30954
+  - name: dashboard
+    port: 18083
+    targetPort: 18083
+    nodePort: 30598
+  - name: ws
+    port: 8083
+    targetPort: 8083
+  - name: wss
+    port: 8084
+    targetPort: 8084
+  - name: api
+    port: 8081
+    targetPort: 8081
+  - name: clustering
+    port: 4370
+    targetPort: 4370
+  - name: rpc
+    port: 5370
+    targetPort: 5370
+
+---
+
+# =================================================================
+# EMQX StatefulSet
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: emqx
+spec:
+  serviceName: emqx-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: emqx
+  template:
+    metadata:
+      labels:
+        app: emqx
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: emqx
+        image: "{{ .Values.emqx.image.repository }}:{{ .Values.emqx.image.tag }}"
+        imagePullPolicy: {{ .Values.global.pullPolicy }}
+        ports:
+        - containerPort: 1883
+          name: mqtt
+        - containerPort: 18083
+          name: dashboard
+        env:
+        - name: EMQX_NAME
+          value: "emqx"
+        - name: EMQX_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: EMQX_CLUSTER__DISCOVERY_STRATEGY
+          value: "singleton"
+        - name: EMQX_ALLOW_ANONYMOUS
+          value: "false"
+        - name: EMQX_AUTH__USER__1__USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: USERNAME
+        - name: EMQX_AUTH__USER__1__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: PASSWORD
+        - name: EMQX_DASHBOARD__DEFAULT_USER__LOGIN
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_USERNAME
+        - name: EMQX_DASHBOARD__DEFAULT_USER__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_PASSWORD
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+  volumeClaimTemplates:
+  - metadata:
+      name: emqx-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.emqx.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.emqx.storage.size }}
+          
+{{- end }}

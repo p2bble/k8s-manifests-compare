@@ -1,0 +1,87 @@
+{{- if and .Values.redis.enabled (not .Values.redis.cluster) }}
+
+# =================================================================
+# Redis Service
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack-headless
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  type: NodePort
+  selector:
+    app: redis-stack
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+  - name: redis-insight
+    port: 8001
+    targetPort: 8001
+
+---
+
+# =================================================================
+# Redis StatefulSet
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-stack
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  serviceName: "redis-stack-headless"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-stack
+  template:
+    metadata:
+      labels:
+        app: redis-stack
+    spec:
+      containers:
+      - name: redis-stack-container
+        image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+        imagePullPolicy: {{ .Values.global.pullPolicy }}
+        ports:
+        - name: redis
+          containerPort: 6379
+        - name: insight
+          containerPort: 8001
+        env:
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: PASSWORD
+        command: ["redis-stack-server"]
+        args:
+        - "--requirepass"
+        - "$(REDIS_PASSWORD)"
+        - "--appendonly"
+        - "yes"
+        - "--appendfsync"
+        - "everysec"
+        - "--auto-aof-rewrite-percentage"
+        - "100"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.redis.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.redis.storage.size }}
+
+{{- end }}

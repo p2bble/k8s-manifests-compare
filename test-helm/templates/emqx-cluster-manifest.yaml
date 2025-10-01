@@ -1,0 +1,168 @@
+{{- if and .Values.emqx.enabled .Values.emqx.cluster }}
+
+# =================================================================
+# EMQX Headless Service (for StatefulSet discovery)
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-headless
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: emqx
+spec:
+  clusterIP: None
+  selector:
+    app: emqx
+  ports:
+  - name: mqtt
+    port: 1883
+  - name: dashboard
+    port: 18083
+  - name: ws
+    port: 8083
+  - name: wss
+    port: 8084
+
+---
+# =================================================================
+# EMQX Public Service (LoadBalancer)
+# =================================================================
+{{- if .Values.emqx.loadBalancer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: emqx
+spec:
+  type: LoadBalancer
+  selector:
+    app: emqx
+  ports:
+  - name: mqtt
+    port: 1883
+  - name: dashboard
+    port: 18083
+{{- end }}
+---
+
+# =================================================================
+# EMQX StatefulSet
+# =================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: emqx
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: emqx
+spec:
+  serviceName: emqx-headless
+  replicas: {{ .Values.emqx.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: emqx
+  template:
+    metadata:
+      labels:
+        app: emqx
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: emqx
+        image: "{{ .Values.emqx.image.repository }}:{{ .Values.emqx.image.tag }}"
+        imagePullPolicy: {{ .Values.global.pullPolicy }}
+        ports:
+        - name: mqtt
+          containerPort: 1883
+        - name: api
+          containerPort: 8081
+        - name: ws
+          containerPort: 8083
+        - name: wss
+          containerPort: 8084
+        - name: dashboard
+          containerPort: 18083
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: EMQX_NAME
+          value: "$(POD_NAME)"
+        - name: EMQX_HOST
+          value: "$(POD_NAME).emqx-headless.{{ .Values.global.namespace | default .Release.Namespace }}.svc.cluster.local"
+        - name: EMQX_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: ERLANG_COOKIE
+        - name: EMQX_CLUSTER__DISCOVERY
+          value: "dns"
+        - name: EMQX_CLUSTER__DNS__NAME
+          value: emqx-headless.{{ .Values.global.namespace | default .Release.Namespace }}.svc.cluster.local
+        - name: EMQX_CLUSTER__DNS__APP
+          value: emqx
+        - name: EMQX_MQTT__MAX_PACKET_SIZE
+          value: "100MB"
+        - name: EMQX_ALLOW_ANONYMOUS
+          value: "false"
+        - name: EMQX_LOADED_PLUGINS
+          value: "emqx_management,emqx_auth_mnesia,emqx_dashboard"
+        - name: EMQX_AUTH__MNESIA__PASSWORD_HASH
+          value: "plain"
+        - name: EMQX_AUTH__CLIENT__1__CLIENTID
+          value: "clobot"
+        - name: EMQX_AUTH__CLIENT__1__PASSWORD
+          value: "ansdufdj1*"
+        - name: EMQX_AUTH__USER__1__USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: USERNAME
+        - name: EMQX_AUTH__USER__1__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: PASSWORD
+        - name: EMQX_DASHBOARD__DEFAULT_USER__LOGIN
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_USERNAME
+        - name: EMQX_DASHBOARD__DEFAULT_USER__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: emqx-secret
+              key: DASHBOARD_PASSWORD
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          tcpSocket:
+            port: 1883
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        readinessProbe:
+          tcpSocket:
+            port: 1883
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 6
+
+{{- end }}

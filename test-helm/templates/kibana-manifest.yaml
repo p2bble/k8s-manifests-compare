@@ -1,0 +1,66 @@
+{{- if .Values.kibana.enabled }}
+
+# =================================================================
+# Kibana Service
+# =================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+spec:
+  type: {{ .Values.kibana.service.type }}
+  selector:
+    app: kibana
+  ports:
+  - port: 5601
+    targetPort: 5601
+    {{- if eq .Values.kibana.service.type "NodePort" }}
+    nodePort: {{ .Values.kibana.service.nodePort }}
+    {{- end }}
+
+---
+# =================================================================
+# Kibana Deployment
+# =================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    app: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - name: kibana-container
+        image: "{{ .Values.kibana.image.repository }}:{{ .Values.kibana.image.tag }}"
+        ports:
+        - containerPort: 5601
+        env:
+        - name: TZ
+          valueFrom:
+            configMapKeyRef:
+              name: global-config
+              key: TIMEZONE
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch-service:9200"
+        - name: ELASTICSEARCH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: USERNAME
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-secret
+              key: PASSWORD
+{{- end }}
