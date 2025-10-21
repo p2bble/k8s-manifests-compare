@@ -2,131 +2,95 @@
 # Global & Environment Specific Configuration
 # =================================================================
 global:
-  # ## 현장 배포 시 수정 ##
-  # 사내 테스트: "croms"
-  # 인천공항 현장: "croms"
-  namespace: "croms"
-
-  # ## 현장 배포 시 수정 ##
-  # 사내 테스트: "registry.clobot.co.kr/croms/edge/croms-incheon-airport-k8s"
-  # 인천공항 현장: "croms.clobot.co.kr"
+  # 'croms-dev' 또는 테스트용 새 네임스페이스 지정
+  namespace: "helm-test-ns"
   registry: "registry.clobot.co.kr/croms/edge/croms-incheon-airport-k8s"
   pullPolicy: IfNotPresent
+  # ConfigMap과 Secret을 배포하도록 활성화
+  deployConfigs: true 
 
 # =================================================================
 # Ingress Settings
 # =================================================================
 ingress:
-  internal:
-    enabled: true
-    className: "nginx"
-  external:
-    enabled: true
-    className: "nginx"
-  cms:
-    enabled: true
-    className: "nginx"
-    namespace: "cms"
+  enabled: true
+  className: "nginx"
+  # 로컬 환경에서 사용할 도메인
+  host: "k8s-test-croms.co.kr" 
+  # HTTPS 사용 시 TLS Secret 이름 (로컬에서는 주석 처리)
+  # tlsSecretName: croms-tls-secret 
 
 # =================================================================
-# Application Services
+# Application Services (배포할 핵심 애플리케이션)
 # =================================================================
 cromsAuth:
   enabled: true
-  replicaCount: 1
   image:
-    name: "croms-auth-service"
-    tag: "v1.0.2"
-  resources:
-    requests: { cpu: "1", memory: "4Gi" }
-    limits: { cpu: "2", memory: "6Gi" }
+    repository: "croms-auth-server"
+    tag: "0702a7f2"
 
 cromsCore:
   enabled: true
-  replicaCount: 1
   image:
-    name: "croms-core-service"
-    tag: "v1.0.15"
-  resources:
-    requests: { cpu: "1", memory: "16Gi" }
-    limits: { cpu: "2", memory: "24Gi" }
+    repository: "croms-core-server"
+    tag: "0702a7f2"
 
 cromsFront:
   enabled: true
-  replicaCount: 1
   image:
-    name: "croms-front-service"
-    tag: "v1.0.7"
-
-cmsBackend:
-  enabled: true
-  namespace: "croms"
-  image:
-    repository: "registry.local"
-    name: "cms-backend-app"
-    tag: "v1.0.6"
-  service:
-    type: NodePort
-    port: 5545
-    nodePort: 32166
-
-cmsFrontend:
-  enabled: true
-  namespace: "croms"
-  image:
-    repository: "registry.local"
-    name: "cms-front-app"
-    tag: "v1.0.4"
-  service:
-    type: NodePort
-    port: 5445
-    nodePort: 31028
+    repository: "croms-front-end"
+    tag: "0702a7f2"
 
 # =================================================================
-# Infrastructure Services (Clustered)
+# Infrastructure Services (★ 로컬 환경용 단일 노드 구성 ★)
+# 모든 cluster 설정을 false로 변경하고 replicaCount를 1로 고정합니다.
 # =================================================================
 rabbitmq:
   enabled: true
-  cluster: true
-  replicaCount: 3
+  cluster: false # <-- 클러스터 모드 비활성화
+  replicaCount: 1
   image:
     repository: "rabbitmq"
     tag: "3.11.11-management"
   storage:
-    storageClassName: "ceph-filesystem"
+    storageClassName: "nfs-client" # 현재 운영중인 storageClass
     size: 10Gi
 
 redis:
   enabled: true
-  cluster: true
-  replicaCount: 6
+  cluster: false # <-- 클러스터 모드 비활성화
+  replicaCount: 1
   image:
     repository: "redis/redis-stack"
     tag: "7.2.0-v10"
   storage:
-    storageClassName: "ceph-filesystem"
+    storageClassName: "nfs-client"
     size: 5Gi
 
 emqx:
   enabled: true
-  cluster: true
-  replicaCount: 3
+  cluster: false # <-- 클러스터 모드 비활성화
+  replicaCount: 1
   image:
-    repository: "docker.io/emqx/emqx"
+    repository: "emqx/emqx"
     tag: "4.3.22"
+  storage:
+    storageClassName: "nfs-client"
+    size: 5Gi
 
 elasticsearch:
   enabled: true
-  replicaCount: 3
+  replicaCount: 1
   image:
     repository: "docker.elastic.co/elasticsearch/elasticsearch"
     tag: "7.9.1"
   storage:
-    storageClassName: "ceph-filesystem"
-    size: 100Gi
+    storageClassName: "nfs-client"
+    size: 20Gi
+  javaOpts: "-Xms1g -Xmx1g" # 로컬 환경에 맞게 메모리 조정
 
 # =================================================================
-# Other Infrastructure & UI Tools
+# UI & Other Tools
 # =================================================================
 kibana:
   enabled: true
@@ -134,31 +98,16 @@ kibana:
     repository: "docker.elastic.co/kibana/kibana"
     tag: "7.9.1"
   service:
-    type: NodePort
-    nodePort: 31564
-
-p3xRedisUi:
-  enabled: true
-  image:
-    repository: "patrikx3/p3x-redis-ui"
-    tag: "latest"
-  service:
-    type: NodePort
-    port: 7843
-    nodePort: 30843
-  storage:
-    storageClassName: "ceph-filesystem"
-    size: 5Gi
+    # Ingress를 통해 접근하므로 NodePort 불필요, ClusterIP로 변경
+    type: ClusterIP 
 
 # =================================================================
-# Storage & PVCs
+# Storage & PVCs (Croms 서비스용)
 # =================================================================
 storage:
   enabled: true
-  storageClassName: "ceph-filesystem"
-  cms:
-    size: 100Gi
+  storageClassName: "nfs-client"
   croms:
-    uploadSize: 100Gi
-    coreLogsSize: 100Gi
-    authLogsSize: 100Gi
+    uploadSize: 5Gi
+    coreLogsSize: 5Gi
+    authLogsSize: 5Gi

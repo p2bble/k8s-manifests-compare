@@ -2,19 +2,6 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: cms-pvc
-  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: {{ .Values.storage.storageClassName }}
-  resources:
-    requests:
-      storage: {{ .Values.storage.cms.size }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
   name: croms-upload-pvc
   namespace: {{ .Values.global.namespace | default .Release.Namespace }}
 spec:

@@ -8,7 +8,6 @@ apiVersion: v1                  # 쿠버네티스 API 버전
 kind: Service                   # 리소스의 종류를 'Service'로 지정
 metadata:
   name: croms-auth-service      # 서비스의 고유한 이름
-  namespace: croms              # 이 서비스가 생성될 네임스페이스
   labels:
     app: croms-auth-service     # 서비스를 식별하기 위한 라벨
 spec:
@@ -30,7 +29,6 @@ apiVersion: apps/v1                 # 쿠버네티스 API 버전
 kind: Deployment                    # 리소스의 종류를 'Deployment'로 지정
 metadata:
   name: croms-auth-service          # Deployment의 고유한 이름
-  namespace: croms                  # 이 Deployment가 생성될 네임스페이스
   labels:
     app: croms-auth-service         # Deployment를 식별하기 위한 라벨
 spec:
@@ -48,19 +46,19 @@ spec:
       # ----------------- 컨테이너 설정 -----------------
       containers:
       - name: auth-service-container  # 컨테이너의 이름
-        image: croms.clobot.co.kr/croms-auth-service:v1.0.2 # 사용할 컨테이너 이미지
-        imagePullPolicy: IfNotPresent       # Pod 생성 시 항상 이미지를 새로 다운로드
+        image: "{{ .Values.global.registry }}/{{ .Values.cromsAuth.image.repository }}:{{ .Values.cromsAuth.image.tag }}"
+        imagePullPolicy: {{ .Values.global.pullPolicy }}       # Pod 생성 시 항상 이미지를 새로 다운로드
         ports:
         - containerPort: 9194         # 컨테이너가 노출할 포트
           name: http
         # ----------------- 리소스 요청 및 제한 설정 -----------------
         resources:
           requests:                     # Pod 스케줄링을 위해 요청하는 최소 리소스
-            cpu: "1"                    # CPU 1 코어
-            memory: "4Gi"               # 메모리 4 GiB
+            cpu: "500m"                    # CPU 1 코어
+            memory: "2Gi"               # 메모리 4 GiB
           limits:                       # 컨테이너가 사용할 수 있는 최대 리소스 한도
-            cpu: "2"                    # CPU 2 코어
-            memory: "6Gi"               # 메모리 6 GiB
+            cpu: "1"                    # CPU 2 코어
+            memory: "4Gi"               # 메모리 6 GiB
         # ----------------- 환경 변수 설정 -----------------
         env:
           - name: JAVA_OPTS             # JVM 옵션
@@ -73,7 +71,7 @@ spec:
                 fieldPath: status.podIP
           # Redis 접속 정보
           - name: MODULES_REDIS_HOST
-            value: "redis-stack-0.redis-stack-headless"
+            value: "redis-stack-service"
           - name: MODULES_REDIS_PORT
             value: "6379"
           - name: MODULES_REDIS_PASSWORD # Secret 리소스로부터 Redis 비밀번호를 가져옴
@@ -83,7 +81,7 @@ spec:
                 key: PASSWORD
           # RabbitMQ 접속 정보
           - name: MODULES_RABBITMQ_HOST
-            value: "rabbitmq-0.rabbitmq-headless"
+            value: "rabbitmq-service"
           - name: MODULES_RABBITMQ_PORT
             value: "5672"
           - name: MODULES_RABBITMQ_USERNAME
@@ -92,7 +90,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: rabbitmq-secret
-                key: PASSWORD
+                key: RABBITMQ_DEFAULT_PASS
           # MariaDB 접속 정보
           - name: MODULES_MARIADB_HOST
             value: "mariadb-service"
